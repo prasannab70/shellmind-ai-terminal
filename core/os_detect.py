@@ -1,8 +1,17 @@
 import platform
 
 def get_os():
-    """
-    Detect the operating system.
-    Returns the OS name.
-    """
-    return platform.system()
+
+    system = platform.system()
+
+    if system == "Windows":
+        return "Windows"
+
+    if system == "Darwin":
+        return "macOS"
+
+    if system == "Linux":
+        return "Linux"
+
+    return "Unknown"
+
