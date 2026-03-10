@@ -5,8 +5,9 @@ from core.executor import run_command
 from ai.ai_engine import ask_ai
 from context.detector import detect_context
 from core.os_detect import get_os
-from safety.guard import check_risk
+from safety.danger_detector import check_dangerous_command
 from healing.error_agent import error_agent
+from healing.file_ops import create_folder, create_file
 
 
 def start_terminal():
@@ -41,11 +42,9 @@ ShellMind AI Commands
 
 Error Agent:
 ai: scan project
-ai: show errors
-ai: explain errors
-ai: fix errors
-ai: fix file <path>
-ai: clear errors
+ai: create folder
+ai: create file
+
 """)
 
                     continue
@@ -68,6 +67,16 @@ ai: clear errors
                     print(result)
                     continue
 
+                if query == "create folder":
+
+                    create_folder()
+                    continue
+
+
+                if query == "create file":
+
+                    create_file()
+                    continue
 
                 if query == "explain errors":
 
@@ -123,7 +132,7 @@ ai: clear errors
                 print("──────────────────────────────")
 
                 # Check risk
-                risk = check_risk(command)
+                risk =check_dangerous_command(command)
 
                 if risk == "HIGH":
                     print("⚠ Warning: This command may be dangerous.")

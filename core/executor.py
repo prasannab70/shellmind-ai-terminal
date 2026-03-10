@@ -1,5 +1,6 @@
 import subprocess
 import os
+from safety.danger_detector import check_dangerous_command
 
 
 def run_command(command):
@@ -8,6 +9,25 @@ def run_command(command):
 
     if not command:
         return
+
+    # ==============================
+    # DANGER CHECK
+    # ==============================
+
+    result = check_dangerous_command(command)
+
+    if result["danger"]:
+        print(result["message"])
+
+        confirm = input("\nDo you want to continue? (yes/no): ")
+
+        if confirm.lower() != "yes":
+            print("❌ Command cancelled.")
+            return
+
+    # ==============================
+    # NORMAL COMMAND HANDLING
+    # ==============================
 
     # Normalize Linux-style commands for Windows
     if command == "clear":
