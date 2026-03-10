@@ -6,9 +6,19 @@ def run_command(command):
 
     command = command.strip()
 
-    # Handle clear screen
-    if command in ["cls", "clear"]:
-        os.system("cls")  # Windows clear
+    if not command:
+        return
+
+    # Normalize Linux-style commands for Windows
+    if command == "clear":
+        command = "cls"
+
+    if command == "ls":
+        command = "dir"
+
+    # Clear screen
+    if command == "cls":
+        os.system("cls")
         return
 
     # Handle cd manually
@@ -29,8 +39,9 @@ def run_command(command):
 
         return
 
-    # Execute normal shell commands
+    # Execute other commands
     try:
+
         result = subprocess.run(
             command,
             shell=True,
@@ -39,10 +50,10 @@ def run_command(command):
         )
 
         if result.stdout:
-            print(result.stdout)
+            print(result.stdout.strip())
 
         if result.stderr:
-            print(result.stderr)
+            print(result.stderr.strip())
 
     except Exception as e:
         print("Execution error:", e)
