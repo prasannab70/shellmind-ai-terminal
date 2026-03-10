@@ -1,79 +1,60 @@
 import subprocess
 import os
-from safety.danger_detector import check_dangerous_command
 
 
-def run_command(command):
+def run_command(command, stream_callback=None):
 
     command = command.strip()
 
     if not command:
-        return
+        return ""
 
-    # ==============================
-    # DANGER CHECK
-    # ==============================
-
-    result = check_dangerous_command(command)
-
-    if result["danger"]:
-        print(result["message"])
-
-        confirm = input("\nDo you want to continue? (yes/no): ")
-
-        if confirm.lower() != "yes":
-            print("❌ Command cancelled.")
-            return
-
-    # ==============================
-    # NORMAL COMMAND HANDLING
-    # ==============================
-
-    # Normalize Linux-style commands for Windows
     if command == "clear":
         command = "cls"
 
     if command == "ls":
         command = "dir"
 
-    # Clear screen
-    if command == "cls":
-        os.system("cls")
-        return
-
-    # Handle cd manually
     if command.startswith("cd"):
 
         parts = command.split(maxsplit=1)
 
         if len(parts) == 1:
-            print(os.getcwd())
-            return
-
-        path = parts[1]
+            out = os.getcwd()
+            if stream_callback:
+                stream_callback(out + "\n")
+            return out
 
         try:
-            os.chdir(path)
+            os.chdir(parts[1])
+            out = f"Changed directory to {os.getcwd()}"
         except Exception as e:
-            print("Directory error:", e)
+            out = str(e)
 
-        return
+        if stream_callback:
+            stream_callback(out + "\n")
 
-    # Execute other commands
-    try:
+        return out
 
-        result = subprocess.run(
-            command,
-            shell=True,
-            text=True,
-            capture_output=True
-        )
+    process = subprocess.Popen(
+        command,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1
+    )
 
-        if result.stdout:
-            print(result.stdout.strip())
+    output = ""
 
-        if result.stderr:
-            print(result.stderr.strip())
+    for line in iter(process.stdout.readline, ""):
 
-    except Exception as e:
-        print("Execution error:", e)
+        output += line
+
+        if stream_callback:
+            stream_callback(line)
+
+    process.stdout.close()
+    process.wait()
+
+    return output

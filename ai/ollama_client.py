@@ -2,7 +2,7 @@ import requests
 import re
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "mistral"
+MODEL = "tinyllama"
 
 
 def ask_ollama(prompt):
