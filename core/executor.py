@@ -16,8 +16,6 @@ def run_command(command, stream_callback=None):
     if not command:
         return ""
 
-    lower_cmd = command.lower().strip()
-
     # ------------------------------------------------
     # Windows aliases
     # ------------------------------------------------
@@ -65,7 +63,7 @@ def run_command(command, stream_callback=None):
         current_process = subprocess.Popen(
             command,
             shell=True,
-            stdin=subprocess.PIPE,          # ⭐ allow interactive input
+            stdin=subprocess.PIPE,   # allow interactive input
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -75,20 +73,26 @@ def run_command(command, stream_callback=None):
 
         output = []
 
-        for line in iter(current_process.stdout.readline, ''):
+        if current_process.stdout is not None:
 
-            if not line:
-                break
+            for line in iter(current_process.stdout.readline, ''):
 
-            output.append(line)
+                if not line:
+                    break
 
-            if stream_callback:
-                stream_callback(line)
+                output.append(line)
 
-        current_process.stdout.close()
+                if stream_callback:
+                    stream_callback(line)
+
+            current_process.stdout.close()
+
         current_process.wait()
 
-        # record undo
+        # ------------------------------------------------
+        # Record undo only if command succeeded
+        # ------------------------------------------------
+
         if current_process.returncode == 0:
             undo_cmd = generate_undo(command)
             record(command, undo_cmd)
@@ -103,6 +107,8 @@ def run_command(command, stream_callback=None):
 
         if stream_callback:
             stream_callback(error + "\n")
+
+        current_process = None
 
         return error
 
@@ -119,5 +125,5 @@ def send_input(user_input):
         try:
             current_process.stdin.write(user_input + "\n")
             current_process.stdin.flush()
-        except:
+        except Exception:
             pass

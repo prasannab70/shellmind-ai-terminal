@@ -24,6 +24,13 @@ from safety.folder_analyzer import analyze_folder
 
 
 # ---------------------------------------------------------
+# CONFIRMATION STATE (NEW)
+# ---------------------------------------------------------
+
+pending_confirm_command = None
+
+
+# ---------------------------------------------------------
 # SMART INTENT CLASSIFIER
 # ---------------------------------------------------------
 
@@ -82,7 +89,6 @@ def expand_natural_commands(query):
         "commit changes": 'git commit -m "update"',
         "commit and push git": 'git add . && git commit -m "update" && git push',
 
-        # Git
         "create git repo": "git init",
         "git init": "git init",
         "git status": "git status",
@@ -91,18 +97,15 @@ def expand_natural_commands(query):
         "git push": "git push",
         "git pull": "git pull",
 
-        # Docker
         "docker build": "docker build .",
         "docker run": "docker run",
         "docker images": "docker images",
         "docker ps": "docker ps",
 
-        # Python
         "install numpy": "pip install numpy",
         "install pandas": "pip install pandas",
         "install requirements": "pip install -r requirements.txt",
 
-        # Node
         "install npm dependencies": "npm install",
     }
 
@@ -188,7 +191,33 @@ def execute_file_operation(natural):
 
 def handle_command(user_input, stream_callback=None):
 
+    global pending_confirm_command
+
     user_input = user_input.strip()
+
+    # ---------------------------------------------
+    # HANDLE YES / NO CONFIRMATION
+    # ---------------------------------------------
+
+    if pending_confirm_command:
+
+        answer = user_input.lower()
+
+        if answer in ["y","yes"]:
+            cmd = pending_confirm_command
+            pending_confirm_command = None
+
+            if cmd.startswith("pip uninstall"):
+                cmd = cmd + " -y"
+
+            return run_command(cmd, stream_callback)
+
+        elif answer in ["n","no"]:
+            pending_confirm_command = None
+            return "❌ Operation cancelled."
+
+        else:
+            return "Please type y or n."
 
     if not user_input.lower().startswith("ai:"):
         return run_command(user_input, stream_callback)
@@ -196,7 +225,7 @@ def handle_command(user_input, stream_callback=None):
     query = user_input[3:].strip().lower()
 
     # -------------------------------------------------
-    # DIRECT SHELL COMMAND (NEW FIX)
+    # DIRECT SHELL COMMAND
     # -------------------------------------------------
 
     direct_commands = (
@@ -209,6 +238,11 @@ def handle_command(user_input, stream_callback=None):
     )
 
     if query.startswith(direct_commands):
+
+        if query.startswith("pip uninstall"):
+            pending_confirm_command = query
+            return "⚠ This will uninstall a package. Continue? (y/n)"
+
         return run_command(query, stream_callback)
 
     # ---------------------------------------------
@@ -263,6 +297,8 @@ def handle_command(user_input, stream_callback=None):
 
             folder = natural.split(":")[1]
             analysis = analyze_folder(folder)
+
+            pending_confirm_command = natural
 
             return f"""
 ⚠ Dangerous Command Detected!
@@ -324,6 +360,8 @@ Do you want to continue? (yes/no):
 
         folder = command_to_run.split()[-1]
         analysis = analyze_folder(folder)
+
+        pending_confirm_command = command_to_run
 
         return f"""
 ⚠ Dangerous Command Detected!

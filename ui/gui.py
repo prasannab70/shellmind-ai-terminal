@@ -9,10 +9,11 @@ from datetime import datetime
 from core.command_handler import handle_command
 from core.executor import send_input, current_process
 
+current_process=None
 
 COMMAND_ICONS = {
     "git": "🔧",
-    "pip": "📦",
+    "pip": "🐍",
     "python": "🐍",
     "npm": "📦",
     "docker": "🐳",
@@ -53,7 +54,7 @@ class GradientFrame(tk.Canvas):
         self.c2 = c2
         self.bind("<Configure>", self.draw)
 
-    def draw(self, event=None):
+    def draw(self, _=None):
 
         self.delete("all")
 
@@ -247,7 +248,7 @@ def launch_gui():
     inner = tk.Frame(canvas, bg="#121212")
     canvas.create_window((0, 0), window=inner, anchor="nw")
 
-    inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    inner.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
 
     sidebar = tk.Frame(main, width=320, bg="#1e1e1e")
     sidebar.pack(side="right", fill="y")
@@ -277,45 +278,89 @@ def launch_gui():
                      font=("Consolas", 12))
     entry.pack(side="left", fill="x", expand=True, padx=5)
 
-    suggestion_box = tk.Listbox(root, bg="#1e1e1e", fg="white")
+    suggestion_box = tk.Listbox(root, bg="#1e1e1e", fg="white", font=("Consolas", 11))
 
-    def show_suggestions(event):
+    # ---------------- AUTOCOMPLETE ----------------
 
-        text = entry.get()
+    def show_suggestions(_):
+
+        text = entry.get().strip().lower()
 
         suggestion_box.delete(0, "end")
 
+        if not text:
+            suggestion_box.place_forget()
+            return
+
         for cmd in SUGGESTIONS:
-            if cmd.startswith(text):
-                suggestion_box.insert("end", cmd)
+            if text in cmd.lower():
+                icon = get_icon(cmd)
+                suggestion_box.insert("end", f"{icon}  {cmd}")
 
         if suggestion_box.size() > 0:
-            suggestion_box.place(x=10, y=root.winfo_height() - 120, width=400)
+
+            x = entry.winfo_rootx() - root.winfo_rootx()
+            y = entry.winfo_rooty() - root.winfo_rooty() - (suggestion_box.size() * 24 + 10)
+
+            height = min(suggestion_box.size(), 6) * 24
+
+            suggestion_box.place(
+                x=x,
+                y=entry.winfo_rooty() - root.winfo_rooty() - height - 4,
+                width=entry.winfo_width(),
+                height=height
+            )
+
         else:
             suggestion_box.place_forget()
 
     entry.bind("<KeyRelease>", show_suggestions)
 
-    def use_suggestion(event):
+    def use_suggestion(_):
 
-        selection = suggestion_box.get("active")
-        entry.delete(0, "end")
-        entry.insert(0, selection)
-        suggestion_box.place_forget()
+        if suggestion_box.curselection():
 
+            text = suggestion_box.get(suggestion_box.curselection())
+            text = text.split("  ", 1)[1]
+
+            entry.delete(0, "end")
+            entry.insert(0, text)
+
+            suggestion_box.place_forget()
+
+    suggestion_box.bind("<Return>", use_suggestion)
     suggestion_box.bind("<Double-Button-1>", use_suggestion)
+
+    entry.bind("<Down>", lambda _: suggestion_box.focus())
+
+    def tab_complete(_):
+
+        if suggestion_box.size() > 0:
+            use_suggestion(None)
+            return "break"
+
+    entry.bind("<Tab>", tab_complete)
+
+    # ---------------- TERMINAL ----------------
 
     date_label = tk.Label(inner, text=datetime.now().strftime("%Y-%m-%d"),
                           fg="#777", bg="#121212", font=("Consolas", 9))
     date_label.pack(anchor="w", padx=6)
 
-    def run(e):
+    def run(_):
 
         user = entry.get()
         if not user:
             return
+        
 
         entry.delete(0, "end")
+        suggestion_box.place_forget()
+
+        if current_process is not None:
+            send_input(user)
+            return
+
         history.append(user)
 
         chat.insert("end", f"User: {user}\n")
@@ -334,13 +379,13 @@ def launch_gui():
             daemon=True
         ).start()
 
+       
+
     def execute_cli(block, user):
 
         spinner_cycle = itertools.cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
 
         running = True
-
-        start_time = time.time()
 
         def spinner():
 
@@ -358,15 +403,12 @@ def launch_gui():
 
         running = False
 
-        duration = round(time.time() - start_time, 2)
-
         if out:
             root.after(0, lambda: block.write_line(str(out)))
 
         success = not ("error" in str(out).lower() or "failed" in str(out).lower())
 
         root.after(0, lambda: block.finish(success))
-
         root.after(0, lambda: chat.insert("end", f"AI: {str(out)[:120]}\n\n"))
 
     entry.bind("<Return>", run)
