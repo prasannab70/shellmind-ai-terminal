@@ -24,7 +24,7 @@ from safety.folder_analyzer import analyze_folder
 
 
 # ---------------------------------------------------------
-# CONFIRMATION STATE (NEW)
+# CONFIRMATION STATE
 # ---------------------------------------------------------
 
 pending_confirm_command = None
@@ -89,22 +89,17 @@ def expand_natural_commands(query):
         "commit changes": 'git commit -m "update"',
         "commit and push git": 'git add . && git commit -m "update" && git push',
 
-        "create git repo": "git init",
         "git init": "git init",
-        "git status": "git status",
         "git add": "git add .",
-        "git commit": 'git commit -m "update"',
         "git push": "git push",
         "git pull": "git pull",
 
         "docker build": "docker build .",
         "docker run": "docker run",
-        "docker images": "docker images",
         "docker ps": "docker ps",
 
         "install numpy": "pip install numpy",
         "install pandas": "pip install pandas",
-        "install requirements": "pip install -r requirements.txt",
 
         "install npm dependencies": "npm install",
     }
@@ -186,6 +181,73 @@ def execute_file_operation(natural):
 
 
 # ---------------------------------------------------------
+# AI FILE DESCRIPTION
+# ---------------------------------------------------------
+
+def describe_file_ai(file_path):
+
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            code = f.read(1200)
+    except:
+        return f"{os.path.basename(file_path)} → binary file"
+
+    context = detect_context()
+    os_type = get_os()
+
+    prompt = f"""
+You are a senior software engineer.
+
+Explain what this file does in ONE short sentence.
+
+File name:
+{os.path.basename(file_path)}
+
+Code snippet:
+{code}
+
+Return format:
+filename → short description
+"""
+
+    try:
+        response = ask_ai(prompt, context, os_type).strip()
+        return response
+    except:
+        return f"{os.path.basename(file_path)} → source file"
+
+
+# ---------------------------------------------------------
+# FOLDER EXPLANATION
+# ---------------------------------------------------------
+
+def explain_folder(folder):
+
+    if not os.path.isdir(folder):
+        return f"❌ Folder '{folder}' not found."
+
+    files = os.listdir(folder)
+
+    result = f"\n📂 Folder Analysis: {folder}\n\n"
+
+    for f in files:
+
+        path = os.path.join(folder, f)
+
+        if os.path.isdir(path):
+            result += f"📁 {f} → directory\n"
+        else:
+            desc = describe_file_ai(path)
+
+            if "→" not in desc:
+                desc = f"{f} → {desc}"
+
+            result += f"📄 {desc}\n"
+
+    return result
+
+
+# ---------------------------------------------------------
 # MAIN COMMAND HANDLER
 # ---------------------------------------------------------
 
@@ -204,8 +266,12 @@ def handle_command(user_input, stream_callback=None):
         answer = user_input.lower()
 
         if answer in ["y","yes"]:
+
             cmd = pending_confirm_command
             pending_confirm_command = None
+
+            if cmd.startswith(("create_", "delete_", "copy_", "move_", "rename_", "open_")):
+                return execute_file_operation(cmd)
 
             if cmd.startswith("pip uninstall"):
                 cmd = cmd + " -y"
@@ -219,10 +285,33 @@ def handle_command(user_input, stream_callback=None):
         else:
             return "Please type y or n."
 
+    # ---------------------------------------------
+
     if not user_input.lower().startswith("ai:"):
         return run_command(user_input, stream_callback)
 
     query = user_input[3:].strip().lower()
+
+    # ---------------------------------------------
+    # FOLDER EXPLANATION MODE
+    # ---------------------------------------------
+
+    if "folder" in query or "directory" in query:
+
+        words = query.replace(":", "").split()
+
+        folder = None
+
+        for i, w in enumerate(words):
+            if w in ["folder", "directory"] and i > 0:
+                folder = words[i-1]
+                break
+
+        if folder and os.path.isdir(folder):
+            return explain_folder(folder)
+
+        else:
+            return f"❌ Folder '{folder}' not found in current directory."
 
     # -------------------------------------------------
     # DIRECT SHELL COMMAND

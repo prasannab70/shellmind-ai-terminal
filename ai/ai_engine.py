@@ -4,6 +4,11 @@ from ai.prompts import COMMAND_PROMPT
 
 def ask_ai(query, context, os_type):
 
+    # ensure safe values
+    query = str(query).strip()
+    context = str(context)
+    os_type = str(os_type)
+
     query_lower = query.lower()
 
     # detect explanation queries
@@ -21,7 +26,7 @@ def ask_ai(query, context, os_type):
     # EXPLANATION MODE
     # ------------------------------
 
-    if any(w in query_lower for w in explain_words):
+    if any(word in query_lower for word in explain_words):
 
         prompt = f"""
 You are an AI developer assistant.
@@ -38,23 +43,37 @@ Project Context:
 {context}
 """
 
-        return ask_ollama(prompt)
+        result = ask_ollama(prompt)
 
     # ------------------------------
     # COMMAND GENERATION MODE
     # ------------------------------
 
-    prompt = COMMAND_PROMPT
-    prompt = prompt.replace("{query}", query)
-    prompt = prompt.replace("{context}", context)
-    prompt = prompt.replace("{os}", os_type)
+    else:
 
-    result = ask_ollama(prompt)
+        prompt = COMMAND_PROMPT
+        prompt = prompt.replace("{query}", query)
+        prompt = prompt.replace("{context}", context)
+        prompt = prompt.replace("{os}", os_type)
 
-    # clean accidental role outputs from LLM
+        result = ask_ollama(prompt)
+
+    # ------------------------------
+    # CLEAN LLM OUTPUT
+    # ------------------------------
+
+    if not result:
+        return ""
+
+    result = str(result).strip()
+
+    # remove role artifacts
     if "role:" in result.lower():
         lines = result.splitlines()
-        lines = [l for l in lines if not l.lower().startswith("role")]
+        lines = [
+            line for line in lines
+            if not line.lower().startswith("role")
+        ]
         result = "\n".join(lines).strip()
 
     return result
