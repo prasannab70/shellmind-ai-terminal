@@ -23,7 +23,18 @@ FOLDER_WORDS = ["folder", "directory", "dir"]
 
 FILE_WORDS = ["file", "document"]
 
+def detect_create_file_in_folder(query):
 
+    pattern = r"create .*file (.+?) (?:in|inside) (?:folder )?(.+)"
+    m = re.search(pattern, query)
+
+    if not m:
+        return None
+
+    filename = m.group(1).strip()
+    folder = m.group(2).strip()
+
+    return f"create_file:{folder}/{filename}"
 # ---------------------------------------------------------
 # CLEAN INPUT
 # ---------------------------------------------------------
@@ -68,7 +79,7 @@ def try_create_folder(q):
 
             if m:
                 name = m.group(1).strip()
-                return create_folder(name)
+                return f"create_folder:{name}"
 
     return None
 
@@ -92,7 +103,7 @@ def try_create_file(q):
                 if "python file" in q and not name.endswith(".py"):
                     name += ".py"
 
-                return create_file(name)
+                return f"create_file:{name}"
 
     return None
 
@@ -111,7 +122,7 @@ def try_delete_file(q):
 
             if m:
                 name = m.group(1).strip()
-                return delete_file(name)
+                return f"delete_file:{name}"
 
     return None
 
@@ -130,7 +141,7 @@ def try_delete_folder(q):
 
             if m:
                 name = m.group(1).strip()
-                return delete_folder(name)
+                return f"delete_folder:{name}"
 
     return None
 
@@ -146,7 +157,7 @@ def try_copy_file(q):
     if m:
         src = m.group(1).strip()
         dst = m.group(2).strip()
-        return copy_file(src, dst)
+        return f"copy_file:{src}:{dst}"
 
     return None
 
@@ -162,7 +173,7 @@ def try_move_file(q):
     if m:
         src = m.group(1).strip()
         dst = m.group(2).strip()
-        return move_file(src, dst)
+        return f"move_file:{src}:{dst}"
 
     return None
 
@@ -178,7 +189,7 @@ def try_rename_file(q):
     if m:
         src = m.group(1).strip()
         dst = m.group(2).strip()
-        return rename_file(src, dst)
+        return f"rename_file:{src}:{dst}"
 
     return None
 
@@ -193,7 +204,7 @@ def try_open_folder(q):
 
     if m:
         name = m.group(1).strip()
-        return open_folder(name)
+        return f"open_folder:{name}"
 
     return None
 
@@ -209,19 +220,19 @@ def try_python_commands(q, stream_callback=None):
         name = m.group(1).strip()
         if not name.endswith(".py"):
             name += ".py"
-        return run_command(f"python {name}", stream_callback)
+        return f"python {name}"
 
     m = re.search(r"create python file (.+)", q)
     if m:
         name = m.group(1).strip()
         if not name.endswith(".py"):
             name += ".py"
-        return run_command(f"type nul > {name}", stream_callback)
+        return f"type nul > {name}"
 
     m = re.search(r"install python package (.+)", q)
     if m:
         pkg = m.group(1).strip()
-        return run_command(f"pip install {pkg}", stream_callback)
+        return f"pip install {pkg}"
 
     return None
 
@@ -233,16 +244,16 @@ def try_python_commands(q, stream_callback=None):
 def try_docker_commands(q, stream_callback=None):
 
     if "docker build" in q or "build docker image" in q:
-        return run_command("docker build .", stream_callback)
+        return "docker build ."
 
     if "run docker container" in q or "docker run" in q:
-        return run_command("docker run", stream_callback)
+        return "docker run"
 
     if "docker images" in q or "show docker images" in q:
-        return run_command("docker images", stream_callback)
+        return "docker images"
 
     if "docker ps" in q or "list docker containers" in q:
-        return run_command("docker ps", stream_callback)
+        return "docker ps"
 
     return None
 
@@ -254,19 +265,19 @@ def try_docker_commands(q, stream_callback=None):
 def try_git_commands(q, stream_callback=None):
 
     if "init git" in q or "create git repo" in q or "make git repo" in q:
-        return run_command("git init", stream_callback)
+        return "git init"
 
     if "git status" in q or "show git status" in q:
-        return run_command("git status", stream_callback)
+        return "git status"
 
     if "commit changes" in q:
-        return run_command('git commit -m "update"', stream_callback)
+        return 'git commit -m "update"'
 
     if "push changes" in q:
-        return run_command("git push", stream_callback)
+        return "git push"
 
     if "pull changes" in q:
-        return run_command("git pull", stream_callback)
+        return "git pull"
 
     return None
 
@@ -278,25 +289,25 @@ def try_git_commands(q, stream_callback=None):
 def try_dependency_commands(q, stream_callback=None):
 
     if "install requirements" in q or "install python dependencies" in q:
-        return run_command("pip install -r requirements.txt", stream_callback)
+        return "pip install -r requirements.txt"
 
     if "install node dependencies" in q or "install npm dependencies" in q:
-        return run_command("npm install", stream_callback)
+        return "npm install"
 
     m = re.search(r"install npm package (.+)", q)
     if m:
         pkg = m.group(1).strip()
-        return run_command(f"npm install {pkg}", stream_callback)
+        return f"npm install {pkg}"
 
     m = re.search(r"(install|add) dependency (.+)", q)
     if m:
         pkg = m.group(2).strip()
-        return run_command(f"pip install {pkg}", stream_callback)
+        return f"pip install {pkg}"
 
     m = re.search(r"install (.+)", q)
     if m:
         pkg = m.group(1).strip()
-        return run_command(f"pip install {pkg}", stream_callback)
+        return f"pip install {pkg}"
 
     return None
 
@@ -309,51 +320,70 @@ def parse_natural_command(query, stream_callback=None):
 
     q = normalize_query(query)
 
-    result = try_create_folder(q)
-    if result:
-        return result
+    checks = [
+        try_create_folder,
+        try_create_file,
+        try_delete_file,
+        try_delete_folder,
+        try_copy_file,
+        try_move_file,
+        try_rename_file,
+        try_open_folder
+    ]
 
-    result = try_create_file(q)
-    if result:
-        return result
+    for func in checks:
+        result = func(q)
+        if result:
 
-    result = try_delete_file(q)
-    if result:
-        return result
+            # execute file operations if sudo mode
+            if stream_callback and ":" in result:
 
-    result = try_delete_folder(q)
-    if result:
-        return result
+                parts = result.split(":")
+                action = parts[0]
 
-    result = try_copy_file(q)
-    if result:
-        return result
+                if action == "create_folder":
+                    return create_folder(parts[1])
 
-    result = try_move_file(q)
-    if result:
-        return result
+                if action == "create_file":
+                    return create_file(parts[1])
 
-    result = try_rename_file(q)
-    if result:
-        return result
+                if action == "delete_file":
+                    return delete_file(parts[1])
 
-    result = try_open_folder(q)
-    if result:
-        return result
+                if action == "delete_folder":
+                    return delete_folder(parts[1])
+
+                if action == "copy_file":
+                    return copy_file(parts[1], parts[2])
+
+                if action == "move_file":
+                    return move_file(parts[1], parts[2])
+
+                if action == "rename_file":
+                    return rename_file(parts[1], parts[2])
+
+                if action == "open_folder":
+                    return open_folder(parts[1])
+
+            return result
 
     result = try_python_commands(q, stream_callback)
     if result:
-        return result
+        return run_command(result, stream_callback)
 
     result = try_git_commands(q, stream_callback)
     if result:
-        return result
+        return run_command(result, stream_callback)
 
     result = try_dependency_commands(q, stream_callback)
     if result:
-        return result
+        return run_command(result, stream_callback)
 
     result = try_docker_commands(q, stream_callback)
+    if result:
+        return run_command(result, stream_callback)
+    
+    result = detect_create_file_in_folder(q)
     if result:
         return result
 

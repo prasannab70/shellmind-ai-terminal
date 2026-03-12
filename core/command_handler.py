@@ -1,140 +1,341 @@
 import os
+import re
 
 from core.executor import run_command
 from ai.ai_engine import ask_ai
 from context.detector import detect_context
 from core.os_detect import get_os
-from safety.danger_detector import check_dangerous_command
-from healing.error_agent import error_agent
 from ai.natural_commands import parse_natural_command
+from utils.command_history import record_action, undo_last
 
+from healing.file_ops import (
+    create_folder,
+    create_file,
+    delete_folder,
+    delete_file,
+    copy_file,
+    move_file,
+    rename_file,
+    open_folder
+)
+
+from safety.danger_detector import check_dangerous_command
+from safety.folder_analyzer import analyze_folder
+
+
+# ---------------------------------------------------------
+# SMART INTENT CLASSIFIER
+# ---------------------------------------------------------
+
+def classify_intent(query):
+
+    question_words = [
+        "what","why","how","when","where",
+        "explain","tell","give","show"
+    ]
+
+    if any(query.startswith(q) for q in question_words):
+        return "question"
+
+    file_ops = [
+        "create","make","generate","delete","remove","erase",
+        "copy","move","rename","folder","file","directory"
+    ]
+
+    command_ops = [
+        "install","run","start","build","deploy","setup",
+        "docker","git","pip","npm","python","flask","fastapi"
+    ]
+
+    if any(w in query for w in file_ops):
+        return "file"
+
+    if any(w in query for w in command_ops):
+        return "command"
+
+    return "question"
+
+
+# ---------------------------------------------------------
+# NATURAL COMMAND EXPANSION
+# ---------------------------------------------------------
+
+def expand_natural_commands(query):
+
+    rules = {
+
+        "create flask api": "pip install flask && mkdir flask_api",
+        "generate fastapi backend": "pip install fastapi uvicorn",
+        "setup python project": "python -m venv venv",
+        "setup python venv": "python -m venv venv",
+        "install requirements": "pip install -r requirements.txt",
+        "install dependencies": "pip install -r requirements.txt",
+        "run flask app": "flask run",
+        "run docker container": "docker run",
+        "deploy docker container": "docker run",
+        "build docker image": "docker build .",
+        "start docker container": "docker run",
+        "docker images": "docker images",
+        "create git repo": "git init",
+        "initialize git": "git init",
+        "git status": "git status",
+        "commit changes": 'git commit -m "update"',
+        "commit and push git": 'git add . && git commit -m "update" && git push',
+
+        # Git
+        "create git repo": "git init",
+        "git init": "git init",
+        "git status": "git status",
+        "git add": "git add .",
+        "git commit": 'git commit -m "update"',
+        "git push": "git push",
+        "git pull": "git pull",
+
+        # Docker
+        "docker build": "docker build .",
+        "docker run": "docker run",
+        "docker images": "docker images",
+        "docker ps": "docker ps",
+
+        # Python
+        "install numpy": "pip install numpy",
+        "install pandas": "pip install pandas",
+        "install requirements": "pip install -r requirements.txt",
+
+        # Node
+        "install npm dependencies": "npm install",
+    }
+
+    for k,v in rules.items():
+        if k in query:
+            return v
+
+    m = re.search(r"install (.+)", query)
+    if m:
+        pkg = m.group(1).strip()
+        return f"pip install {pkg}"
+
+    m = re.search(r"run python file (.+)", query)
+    if m:
+        name = m.group(1)
+
+        if not name.endswith(".py"):
+            name += ".py"
+
+        return f"python {name}"
+
+    return None
+
+
+# ---------------------------------------------------------
+# FILE OPERATION EXECUTOR
+# ---------------------------------------------------------
+
+def execute_file_operation(natural):
+
+    if natural.startswith("create_folder:"):
+        name = natural.split(":",1)[1]
+        result = create_folder(name)
+        record_action({"type": "create_folder","path": name})
+        return result
+
+    if natural.startswith("create_file:"):
+        name = natural.split(":",1)[1]
+        result = create_file(name)
+        record_action({"type": "create_file","path": name})
+        return result
+
+    if natural.startswith("delete_folder:"):
+        name = natural.split(":",1)[1]
+        result = delete_folder(name)
+        record_action({"type": "delete_folder","path": name})
+        return result
+
+    if natural.startswith("delete_file:"):
+        name = natural.split(":",1)[1]
+        result = delete_file(name)
+        record_action({"type": "delete_file","path": name})
+        return result
+
+    if natural.startswith("copy_file:"):
+        _,src,dst = natural.split(":")
+        result = copy_file(src,dst)
+        record_action({"type": "copy_file","src": src,"dst": dst})
+        return result
+
+    if natural.startswith("move_file:"):
+        _,src,dst = natural.split(":")
+        result = move_file(src,dst)
+        record_action({"type": "move_file","src": src,"dst": dst})
+        return result
+
+    if natural.startswith("rename_file:"):
+        _,src,dst = natural.split(":")
+        result = rename_file(src,dst)
+        record_action({"type": "rename_file","src": src,"dst": dst})
+        return result
+
+    if natural.startswith("open_folder:"):
+        name = natural.split(":",1)[1]
+        return open_folder(name)
+
+    return None
+
+
+# ---------------------------------------------------------
+# MAIN COMMAND HANDLER
+# ---------------------------------------------------------
 
 def handle_command(user_input, stream_callback=None):
 
-    # ---------------------------------------------------------
-    # NORMAL TERMINAL COMMAND
-    # ---------------------------------------------------------
+    user_input = user_input.strip()
 
     if not user_input.lower().startswith("ai:"):
         return run_command(user_input, stream_callback)
 
-    # ---------------------------------------------------------
-    # AI MODE
-    # ---------------------------------------------------------
-
     query = user_input[3:].strip().lower()
 
-    # ---------------------------------------------------------
-    # HELP
-    # ---------------------------------------------------------
+    # -------------------------------------------------
+    # DIRECT SHELL COMMAND (NEW FIX)
+    # -------------------------------------------------
 
-    if query == "help":
+    direct_commands = (
+        "pip ",
+        "git ",
+        "docker ",
+        "npm ",
+        "python ",
+        "node "
+    )
 
-        return """
-ShellMind AI Commands
+    if query.startswith(direct_commands):
+        return run_command(query, stream_callback)
 
-Project Analysis
-----------------
-ai: scan project
-ai: show errors
-ai: explain errors
-ai: fix errors
-ai: fix file <path>
-ai: clear errors
+    # ---------------------------------------------
+    # UNDO COMMAND
+    # ---------------------------------------------
 
-File Operations
----------------
-ai:create folder test
-ai:make a new folder called project
-ai:create file test.txt
-ai:create python file app
-ai:remove file test.txt
-ai:delete folder temp
+    if query == "undo":
+        return undo_last()
+
+    # ---------------------------------------------
+    # ADMIN DELETE MODE
+    # ---------------------------------------------
+
+    if query.startswith("admin"):
+
+        command = query.replace("admin","",1).strip()
+        folder = command.split()[-1]
+
+        analysis = analyze_folder(folder)
+
+        output = "\n🔐 ADMIN DELETE MODE\n\n"
+        output += "📁 Folder Analysis\n\n"
+        output += analysis
+        output += "\n\n🗑 Deleting folder...\n"
+
+        delete_folder(folder)
+
+        return output
+
+    # ---------------------------------------------
+    # QUESTION CHECK
+    # ---------------------------------------------
+
+    intent = classify_intent(query)
+
+    if intent == "question":
+
+        context = detect_context()
+        os_type = get_os()
+
+        return ask_ai(query, context, os_type)
+
+    # ---------------------------------------------
+    # NATURAL LANGUAGE PARSE
+    # ---------------------------------------------
+
+    natural = parse_natural_command(query)
+
+    if natural:
+
+        if natural.startswith("delete_folder:"):
+
+            folder = natural.split(":")[1]
+            analysis = analyze_folder(folder)
+
+            return f"""
+⚠ Dangerous Command Detected!
+
+Command: delete folder {folder}
+Reason: You are deleting a directory.
+
+📁 Folder Analysis
+
+{analysis}
+
+Do you want to continue? (yes/no):
 """
 
-    # ---------------------------------------------------------
-    # ERROR AGENT COMMANDS
-    # ---------------------------------------------------------
+        file_result = execute_file_operation(natural)
 
-    if query == "scan project":
-        result = error_agent.cmd_scan(os.getcwd())
-        if stream_callback:
-            stream_callback(result + "\n")
-        return result
+        if file_result:
+            return file_result
 
-    if query == "show errors":
-        result = error_agent.cmd_show_errors(os.getcwd())
-        if stream_callback:
-            stream_callback(result + "\n")
-        return result
+        command_to_run = natural
 
-    if query == "explain errors":
-        result = error_agent.cmd_explain_errors()
-        if stream_callback:
-            stream_callback(result + "\n")
-        return result
+    else:
 
-    if query == "fix errors":
-        result = error_agent.cmd_fix_all(os.getcwd())
-        if stream_callback:
-            stream_callback(result + "\n")
-        return result
+        expanded = expand_natural_commands(query)
 
-    if query.startswith("fix file"):
+        if expanded:
+            command_to_run = expanded
 
-        parts = query.split(" ", 2)
+        else:
 
-        if len(parts) < 3:
-            return "Usage: ai: fix file <path>"
+            context = detect_context()
+            os_type = get_os()
 
-        filepath = parts[2]
+            ai_output = ask_ai(query, context, os_type)
 
-        result = error_agent.cmd_fix_file(filepath, os.getcwd())
+            command_to_run = str(ai_output).strip()
+            command_to_run = command_to_run.replace("```", "")
 
-        if stream_callback:
-            stream_callback(result + "\n")
+            lines = command_to_run.split("\n")
 
-        return result
+            for line in lines:
 
-    if query == "clear errors":
-        result = error_agent.cmd_clear_errors(os.getcwd())
+                line = line.strip()
+                line = line.lstrip("$># ")
 
-        if stream_callback:
-            stream_callback(result + "\n")
+                if line.startswith(("pip", "git", "docker", "npm", "python")):
+                    command_to_run = line
+                    break
+            else:
+                command_to_run = lines[0].strip()
 
-        return result
+    # ---------------------------------------------
+    # DANGEROUS COMMAND CHECK
+    # ---------------------------------------------
 
-    # ---------------------------------------------------------
-    # NATURAL LANGUAGE COMMANDS
-    # ---------------------------------------------------------
-
-    natural_result = parse_natural_command(query, stream_callback)
-
-    if natural_result:
-        return natural_result
-
-    # ---------------------------------------------------------
-    # AI COMMAND GENERATION
-    # ---------------------------------------------------------
-
-    context = detect_context()
-    os_type = get_os()
-
-    command = ask_ai(query, context, os_type)
-
-    if not command:
-        return "AI could not generate a command."
-
-    risk = check_dangerous_command(command)
-
-    if stream_callback:
-        stream_callback(f"\nAI Suggested Command:\n  {command}\n")
+    risk = check_dangerous_command(command_to_run)
 
     if risk == "HIGH":
-        warning = "⚠ Warning: This command may be dangerous.\n"
-        if stream_callback:
-            stream_callback(warning)
-        return warning
 
-    # Execute generated command so GUI shows output
-    return run_command(command, stream_callback)
+        folder = command_to_run.split()[-1]
+        analysis = analyze_folder(folder)
+
+        return f"""
+⚠ Dangerous Command Detected!
+
+Command: {command_to_run}
+Reason: You are deleting a directory.
+
+📁 Folder Analysis
+
+{analysis}
+
+Do you want to continue? (yes/no):
+"""
+
+    return run_command(command_to_run, stream_callback)
